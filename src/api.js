@@ -66,6 +66,11 @@ export async function createRecord(table,payload){
   return ok(await db().from(table).insert(payload).select().single());
 }
 
+export async function insertRecords(table,rows){
+  if(!rows?.length)return [];
+  return ok(await db().from(table).insert(rows).select());
+}
+
 export async function updateRecord(table,id,payload){
   return ok(await db().from(table).update(payload).eq('id',id).select().single());
 }

@@ -1,10 +1,11 @@
 import React,{useEffect,useMemo,useState}from'react';
 import * as I from'lucide-react';
+import * as XLSX from'xlsx';
 import{
   auth,createMosque,memberships,profile,dashboard,getModuleData,createOpeningSetup,
   createRecord,updateRecord,upsertRecord,createTransaction,postTransaction,voidTransaction,
   decideApproval,postDonationBox,createDonationBoxSession,uploadEvidence,markNotificationRead,
-  addMember,signedFileUrl
+  addMember,signedFileUrl,insertRecords
 }from'./api';
 import{isSupabaseConfigured}from'./supabase';
 
@@ -29,6 +30,7 @@ const nav=[
   ['approvals',I.ShieldCheck,'Persetujuan'],
   ['notifications',I.Bell,'Notifikasi'],
   ['team',I.UserRoundCog,'Tim & Akses'],
+  ['guide',I.BookOpenCheck,'Panduan Penggunaan'],
   ['settings',I.Settings,'Pengaturan']
 ];
 
@@ -118,7 +120,7 @@ function Workspace({session,globalError}){
   const[ms,setMs]=useState([]),[active,setActive]=useState(localStorage.amanahMosque||''),[me,setMe]=useState(null);
   const[loading,setLoading]=useState(true),[refresh,setRefresh]=useState(0),[data,setData]=useState(null),[mods,setMods]=useState(null);
   const[page,setPage]=useState(location.hash.slice(1)||'dashboard'),[dark,setDark]=useState(localStorage.theme==='dark');
-  const[action,setAction]=useState(null),[toast,setToast]=useState(''),[err,setErr]=useState(globalError||''),[mobileMore,setMobileMore]=useState(false);
+  const[action,setAction]=useState(null),[toast,setToast]=useState(''),[err,setErr]=useState(globalError||''),[mobileMore,setMobileMore]=useState(false),[collapsed,setCollapsed]=useState(localStorage.sidebarCollapsed==='1');
   const reload=()=>setRefresh(x=>x+1);
   const notify=m=>{setToast(m);setTimeout(()=>setToast(''),3000)};
   const go=p=>{location.hash=p;setMobileMore(false)};
@@ -141,6 +143,7 @@ function Workspace({session,globalError}){
   },[active,refresh]);
 
   useEffect(()=>{document.documentElement.dataset.theme=dark?'dark':'light';localStorage.theme=dark?'dark':'light'},[dark]);
+  useEffect(()=>{localStorage.sidebarCollapsed=collapsed?'1':'0'},[collapsed]);
   useEffect(()=>{const h=()=>setPage(location.hash.slice(1)||'dashboard');addEventListener('hashchange',h);return()=>removeEventListener('hashchange',h)},[]);
 
   const finishOnboarding=id=>{if(id){setActive(id);localStorage.amanahMosque=id}setRefresh(x=>x+1)};
@@ -161,17 +164,17 @@ function Workspace({session,globalError}){
   };
   const ctx={session,mosque,membership,role,perms,d:data,m:mods,reload,notify,open:setAction,go};
 
-  return <div className="shellPro">
+  return <div className={'shellPro '+(collapsed?'sideCollapsed':'')}>
     <aside className="sidePro">
-      <Logo/>
-      <div className="sideMosque"><span>MASJID AKTIF</span><select value={active} onChange={e=>setActive(e.target.value)}>{ms.map(x=><option key={x.id} value={x.mosque_id}>{x.mosques?.name}</option>)}</select></div>
+      <div className="sideBrandRow"><Logo compact={collapsed}/><button className="collapseBtn" onClick={()=>setCollapsed(!collapsed)} title={collapsed?'Tampilkan navigasi':'Sembunyikan navigasi'}>{collapsed?<I.PanelLeftOpen/>:<I.PanelLeftClose/>}</button></div>
+      <div className="sideMosque"><span>MASJID</span><b>{mosque?.name}</b>{!collapsed&&<small>{mosque?.city||'Workspace Amanah Pro'}</small>}</div>
       <nav className="navPro">{nav.map(([k,Icon,l],idx)=><React.Fragment key={k}>{[0,3,8,11].includes(idx)&&idx>0?<div className="navDivider"/>:null}<button className={page===k?'active':''} onClick={()=>go(k)}><Icon/><span>{l}</span>{k==='notifications'&&data.notifications.filter(n=>!n.read_at).length>0&&<em>{data.notifications.filter(n=>!n.read_at).length}</em>}</button></React.Fragment>)}</nav>
       <div className="sideUser"><div className="avatarPro">{(me?.full_name||session.user.email).slice(0,2).toUpperCase()}</div><div><b>{me?.full_name||session.user.email}</b><span>{roleLabel[role]||role}</span></div><button className="iconBtn" onClick={()=>auth.signOut()} title="Keluar"><I.LogOut/></button></div>
     </aside>
 
     <main className="mainPro">
       <header className="topPro">
-        <div className="topTitle"><button className="mobileBrand" onClick={()=>setMobileMore(true)}><I.Menu/></button><div><span>{mosque?.name}</span><b>{nav.find(x=>x[0]===page)?.[2]||'Amanah Pro'}</b></div></div>
+        <div className="topTitle"><button className="mobileBrand" onClick={()=>setMobileMore(true)}><I.Menu/></button><button className="desktopCollapse iconBtn" onClick={()=>setCollapsed(!collapsed)} title={collapsed?'Tampilkan navigasi':'Sembunyikan navigasi'}>{collapsed?<I.PanelLeftOpen/>:<I.PanelLeftClose/>}</button><div><span>{mosque?.name}</span><b>{nav.find(x=>x[0]===page)?.[2]||'Amanah Pro'}</b></div></div>
         <div className="topActions"><button className="iconBtn" onClick={()=>setDark(!dark)} title="Ganti tema">{dark?<I.Sun/>:<I.Moon/>}</button><button className="iconBtn" onClick={()=>go('notifications')}><I.Bell/></button>{perms.finance&&<Button variant="primary" onClick={()=>setAction({type:'transaction',preset:'income'})}><I.Plus/>Transaksi</Button>}</div>
       </header>
       {err&&<div className="topError"><I.CircleAlert/>{err}<button onClick={()=>setErr('')}><I.X/></button></div>}
@@ -202,6 +205,7 @@ function Page(p){
     case'approvals':return <Approvals {...p}/>;
     case'notifications':return <Notifications {...p}/>;
     case'team':return <Team {...p}/>;
+    case'guide':return <Guide {...p}/>;
     case'settings':return <Settings {...p}/>;
     default:return <Dashboard {...p}/>
   }
@@ -330,7 +334,7 @@ function Boxes({m,perms,open,reload,notify}){
 function Donors({m,perms,open}){
   const rows=m.donors||[];const totalCommit=rows.filter(x=>x.active).reduce((s,x)=>s+num(x.monthly_commitment),0);
   return <>
-    <PageHead eyebrow="RELASI DONATUR" title="Donatur" text="Komitmen bulanan hanya target dan tidak menambah saldo sebelum transaksi benar-benar diterima." action={perms.manage?<Button variant="primary" onClick={()=>open({type:'donor'})}><I.Plus/>Tambah Donatur</Button>:null}/>
+    <PageHead eyebrow="RELASI DONATUR" title="Donatur" text="Komitmen bulanan hanya target dan tidak menambah saldo sebelum transaksi benar-benar diterima." action={perms.manage?<div className="headActions"><Button onClick={()=>open({type:'import-excel',entity:'donor'})}><I.FileSpreadsheet/>Import Excel</Button><Button variant="primary" onClick={()=>open({type:'donor'})}><I.Plus/>Tambah Donatur</Button></div>:null}/>
     <div className="metricGrid three"><Metric icon={I.Users} title="Donatur aktif" value={String(rows.filter(x=>x.active).length)} meta="Terdaftar"/><Metric icon={I.CalendarHeart} title="Komitmen bulanan" value={rp(totalCommit)} meta="Target, bukan kas"/><Metric icon={I.UserX} title="Nonaktif" value={String(rows.filter(x=>!x.active).length)} meta="Histori tetap disimpan"/></div>
     <div className="entityGrid">{rows.map(x=><article className="entityCard" key={x.id}><div className="entityTop"><div className="entityIcon blue"><I.UserRound/></div><div><b>{x.name}</b><span>{x.phone||'Nomor HP belum diisi'}</span></div>{perms.manage&&<button className="iconBtn small" onClick={()=>open({type:'donor',item:x})}><I.Pencil/></button>}</div><div className="entityMeta"><span><b>{rp(x.monthly_commitment)}</b>Komitmen/bln</span><span><b>{x.active?'Aktif':'Nonaktif'}</b>Status</span></div>{x.address&&<p className="muted">{x.address}</p>}</article>)}</div>
     {!rows.length&&<section className="cardPro"><Empty icon={I.HandHeart} title="Belum ada donatur" text="Tambahkan donatur tetap atau donatur yang ingin dicatat riwayat kontribusinya."/></section>}
@@ -340,7 +344,7 @@ function Donors({m,perms,open}){
 function Units({m,d,perms,open}){
   const rows=m.units||[];const posted=d.transactions.filter(x=>x.status==='posted');
   return <>
-    <PageHead eyebrow="UNIT & USAHA" title="Unit Masjid" text="Pantau pemasukan dan biaya TPQ, aula, parkir, koperasi, ambulans, dan unit lainnya." action={perms.manage?<Button variant="primary" onClick={()=>open({type:'unit'})}><I.Plus/>Tambah Unit</Button>:null}/>
+    <PageHead eyebrow="UNIT & USAHA" title="Unit Masjid" text="Pantau pemasukan dan biaya TPQ, aula, parkir, koperasi, ambulans, dan unit lainnya." action={perms.manage?<div className="headActions"><Button onClick={()=>open({type:'import-excel',entity:'unit'})}><I.FileSpreadsheet/>Import Excel</Button><Button variant="primary" onClick={()=>open({type:'unit'})}><I.Plus/>Tambah Unit</Button></div>:null}/>
     <div className="entityGrid">{rows.map(x=>{const tx=posted.filter(t=>t.unit_id===x.id),inc=tx.filter(t=>t.kind==='income').reduce((s,t)=>s+num(t.amount),0),out=tx.filter(t=>t.kind==='expense').reduce((s,t)=>s+num(t.amount),0);return <article className="entityCard" key={x.id}><div className="entityTop"><div className="entityIcon purple"><I.Store/></div><div><b>{x.name}</b><span>{x.person_in_charge||'PIC belum ditetapkan'}</span></div>{perms.manage&&<button className="iconBtn small" onClick={()=>open({type:'unit',item:x})}><I.Pencil/></button>}</div><div className="entityMeta"><span><b className="moneyIn">{rp(inc)}</b>Masuk</span><span><b className="moneyOut">{rp(out)}</b>Keluar</span><span><b>{rp(inc-out)}</b>Hasil</span></div></article>})}</div>
     {!rows.length&&<section className="cardPro"><Empty icon={I.Store} title="Belum ada unit masjid" text="Unit bersifat opsional. Tambahkan jika masjid memiliki TPQ, aula, koperasi, parkir, atau layanan lainnya."/></section>}
   </>
@@ -350,7 +354,7 @@ function Budgets({m,d,perms,open}){
   const rows=budgetRealization(m.budgets,d.transactions.filter(x=>x.status==='posted'));
   const total=rows.reduce((s,x)=>s+num(x.amount),0),real=rows.reduce((s,x)=>s+x.realized,0);
   return <>
-    <PageHead eyebrow="KONTROL BELANJA" title="Anggaran" text="Anggaran adalah batas belanja, bukan saldo Dana." action={perms.finance?<Button variant="primary" onClick={()=>open({type:'budget'})}><I.Plus/>Buat Anggaran</Button>:null}/>
+    <PageHead eyebrow="KONTROL BELANJA" title="Anggaran" text="Anggaran adalah batas belanja, bukan saldo Dana." action={perms.finance?<div className="headActions"><Button onClick={()=>open({type:'import-excel',entity:'budget'})}><I.FileSpreadsheet/>Import Excel</Button><Button variant="primary" onClick={()=>open({type:'budget'})}><I.Plus/>Buat Anggaran</Button></div>:null}/>
     <div className="metricGrid three"><Metric icon={I.Target} title="Total pagu" value={rp(total)} meta="Periode aktif"/><Metric icon={I.Receipt} title="Realisasi" value={rp(real)} meta={total?Math.round(real/total*100)+'% dari pagu':'Belum ada pagu'}/><Metric icon={I.PiggyBank} title="Sisa anggaran" value={rp(total-real)} meta="Pagu dikurangi realisasi"/></div>
     <section className="cardPro"><SectionHead title="Realisasi per bidang" text="Pengeluaran POSTED dikelompokkan berdasarkan bidang anggaran."/>
       {!rows.length?<Empty icon={I.PieChart} title="Belum ada anggaran" text="Buat pagu untuk bidang operasional, pendidikan, sosial, kegiatan, dan lainnya."/>:<div className="budgetList">{rows.map(x=><div className="budgetRow" key={x.id}><div className="budgetTitle"><div><b>{x.name}</b><span>{x.budget_group}</span></div>{perms.finance&&<button className="iconBtn small" onClick={()=>open({type:'budget',item:x})}><I.Pencil/></button>}</div><div className="budgetNumbers"><strong>{rp(x.realized)}</strong><span>dari {rp(x.amount)} • {Math.round(x.percent)}%</span></div><div className="progressPro"><i style={{width:Math.min(100,x.percent)+'%'}} className={x.percent>=100?'danger':x.percent>=80?'warning':''}/></div><Badge tone={x.percent>=100?'danger':x.percent>=80?'warning':'success'}>{x.percent>=100?'Melebihi pagu':x.percent>=80?'Hampir habis':'Terkendali'}</Badge></div>)}</div>}
@@ -361,7 +365,7 @@ function Budgets({m,d,perms,open}){
 function Inventory({m,perms,open}){
   const rows=m.inventory||[];const total=rows.reduce((s,x)=>s+num(x.quantity)*num(x.unit_value),0);
   return <>
-    <PageHead eyebrow="ASET MASJID" title="Inventaris" text="Simpan nilai, lokasi, kondisi, sumber dana, dan catatan aset agar serah terima pengurus lebih rapi." action={perms.manage?<Button variant="primary" onClick={()=>open({type:'inventory'})}><I.Plus/>Tambah Aset</Button>:null}/>
+    <PageHead eyebrow="ASET MASJID" title="Inventaris" text="Simpan nilai, lokasi, kondisi, sumber dana, dan catatan aset agar serah terima pengurus lebih rapi." action={perms.manage?<div className="headActions"><Button onClick={()=>open({type:'import-excel',entity:'inventory'})}><I.FileSpreadsheet/>Import Excel</Button><Button variant="primary" onClick={()=>open({type:'inventory'})}><I.Plus/>Tambah Aset</Button></div>:null}/>
     <div className="metricGrid three"><Metric icon={I.PackageCheck} title="Total item" value={String(rows.reduce((s,x)=>s+num(x.quantity),0))} meta={rows.length+' jenis aset'}/><Metric icon={I.BadgeDollarSign} title="Nilai aset" value={rp(total)} meta="Berdasarkan nilai perolehan"/><Metric icon={I.Wrench} title="Perlu perhatian" value={String(rows.filter(x=>x.condition!=='good').length)} meta="Servis / rusak"/></div>
     <section className="cardPro noPad">{!rows.length?<Empty icon={I.Package} title="Belum ada inventaris" text="Tambahkan aset masjid, lokasi, kondisi, nilai, dan sumber dananya."/>:<div className="assetGrid">{rows.map(x=><button className="assetRow" key={x.id} onClick={()=>perms.manage&&open({type:'inventory',item:x})}><div className={'assetIcon '+(x.condition==='good'?'good':x.condition==='service'?'warn':'bad')}><I.Package/></div><div><b>{x.name}</b><span>{x.code} • {x.location||'Lokasi belum diisi'}</span></div><div><strong>{num(x.quantity)} {x.unit||'unit'}</strong><span>{rp(num(x.quantity)*num(x.unit_value))}</span></div><Badge tone={x.condition==='good'?'success':x.condition==='service'?'warning':'danger'}>{x.condition==='good'?'Baik':x.condition==='service'?'Perlu servis':x.condition==='damaged'?'Rusak':x.condition}</Badge></button>)}</div>}</section>
   </>
@@ -377,7 +381,7 @@ function Reports({d,mosque}){
   const exportDoc=()=>download('laporan-amanah-pro.doc',reportHtml(mosque,start,end,rows,income,expense),'application/msword');
   return <>
     <PageHead eyebrow="PUSAT LAPORAN" title="Laporan Keuangan" text="Pilih rentang tanggal bebas, preview data, lalu ekspor untuk pertanggungjawaban."/>
-    <section className="cardPro reportFilter"><div className="formGrid3"><label>Mulai<input type="date" value={start} onChange={e=>setStart(e.target.value)}/></label><label>Selesai<input type="date" value={end} onChange={e=>setEnd(e.target.value)}/></label><label>Jenis<select value={kind} onChange={e=>setKind(e.target.value)}><option value="all">Semua transaksi</option><option value="income">Pemasukan</option><option value="expense">Pengeluaran</option><option value="transfer">Transfer kas</option></select></label></div><div className="exportBtns"><Button onClick={exportCsv}><I.FileSpreadsheet/>Excel / CSV</Button><Button onClick={exportDoc}><I.FileType2/>Word</Button><Button variant="primary" onClick={()=>window.print()}><I.FileDown/>PDF / Cetak</Button></div></section>
+    <section className="cardPro reportFilter"><div className="formGrid3"><label>Mulai<input type="date" value={start} onChange={e=>setStart(e.target.value)}/></label><label>Selesai<input type="date" value={end} onChange={e=>setEnd(e.target.value)}/></label><label>Jenis<select value={kind} onChange={e=>setKind(e.target.value)}><option value="all">Semua transaksi</option><option value="income">Pemasukan</option><option value="expense">Pengeluaran</option><option value="transfer">Transfer kas</option></select></label></div><div className="exportBtns"><Button onClick={exportCsv}><I.FileSpreadsheet/>Excel / CSV</Button><Button onClick={exportDoc}><I.FileType2/>Word</Button><Button variant="primary" onClick={()=>printCleanReport(mosque,start,end,rows,income,expense)}><I.FileDown/>PDF / Cetak</Button></div></section>
     <div className="metricGrid three"><Metric icon={I.ArrowDownLeft} title="Pemasukan" value={rp(income)} tone="green"/><Metric icon={I.ArrowUpRight} title="Pengeluaran" value={rp(expense)} tone="red"/><Metric icon={I.Scale} title="Surplus / Defisit" value={rp(income-expense)} tone={income-expense>=0?'purple':'red'}/></div>
     <section className="cardPro reportPaper"><div className="reportHeader"><div><Logo compact/><h2>{mosque?.name}</h2><p>Laporan Keuangan • {fmtDate(start)} — {fmtDate(end)}</p></div><div><span>Dibuat</span><b>{fmtDate(today())}</b></div></div><TransactionRows rows={rows}/></section>
   </>
@@ -424,13 +428,14 @@ function Settings({m,mosque,perms,reload,notify,open}){
 
     {tab==='policy'&&<section className="cardPro settingsForm"><SectionHead title="Kebijakan Transaksi" text="Kontrol ini berlaku untuk transaksi baru."/><div className="toggleList"><label className="toggleRow"><div><b>Aktifkan approval transaksi</b><span>Transaksi yang memenuhi aturan menunggu persetujuan sebelum POSTED.</span></div><input type="checkbox" checked={s.approval_enabled} onChange={e=>setS({...s,approval_enabled:e.target.checked})}/></label><label className="toggleRow"><div><b>Four-eyes approval</b><span>Pembuat transaksi dan penyetuju harus berbeda.</span></div><input type="checkbox" checked={s.four_eyes} onChange={e=>setS({...s,four_eyes:e.target.checked})}/></label></div><div className="formGrid2"><label>Ambang approval<input type="number" min="0" value={s.approval_threshold} onChange={e=>setS({...s,approval_threshold:e.target.value})} placeholder="Contoh 5000000"/></label><label>Bukti transaksi wajib mulai<input type="number" min="0" value={s.require_evidence_threshold} onChange={e=>setS({...s,require_evidence_threshold:e.target.value})} placeholder="Contoh 1000000"/></label></div>{perms.finance&&<div className="saveBar"><Button variant="primary" onClick={savePolicy}>Simpan Kebijakan</Button></div>}</section>}
 
-    {tab==='category'&&<section className="cardPro"><SectionHead title="Kategori Transaksi" text="Kategori membantu laporan dan realisasi anggaran." action={perms.finance?<Button variant="primary" onClick={()=>open({type:'category'})}><I.Plus/>Kategori</Button>:null}/><div className="categoryGrid">{m.categories.map(x=><div className="categoryCard" key={x.id}><div className={'miniIcon '+(x.kind==='income'?'green':'red')}>{x.kind==='income'?<I.ArrowDownLeft/>:<I.ArrowUpRight/>}</div><div><b>{x.name}</b><span>{x.code} • {x.kind==='income'?'Pemasukan':'Pengeluaran'}</span>{x.budget_group&&<small>{x.budget_group}</small>}</div>{perms.finance&&<button className="iconBtn small" onClick={()=>open({type:'category',item:x})}><I.Pencil/></button>}</div>)}</div></section>}
+    {tab==='category'&&<section className="cardPro"><SectionHead title="Kategori Transaksi" text="Kategori membantu laporan dan realisasi anggaran." action={perms.finance?<div className="headActions"><Button onClick={()=>open({type:'import-excel',entity:'category'})}><I.FileSpreadsheet/>Import Excel</Button><Button variant="primary" onClick={()=>open({type:'category'})}><I.Plus/>Kategori</Button></div>:null}/><div className="categoryGrid">{m.categories.map(x=><div className="categoryCard" key={x.id}><div className={'miniIcon '+(x.kind==='income'?'green':'red')}>{x.kind==='income'?<I.ArrowDownLeft/>:<I.ArrowUpRight/>}</div><div><b>{x.name}</b><span>{x.code} • {x.kind==='income'?'Pemasukan':'Pengeluaran'}</span>{x.budget_group&&<small>{x.budget_group}</small>}</div>{perms.finance&&<button className="iconBtn small" onClick={()=>open({type:'category',item:x})}><I.Pencil/></button>}</div>)}</div></section>}
 
     {tab==='audit'&&<section className="cardPro"><SectionHead title="Audit Trail" text="Jejak tindakan penting tidak dapat diedit oleh pengguna biasa."/><div className="auditList">{(m.audits||[]).length?(m.audits||[]).map(x=><div className="auditRow" key={x.id}><div className="auditDot"/><div><b>{x.action} • {x.entity_type}</b><span>{fmtTime(x.created_at)}{x.reason?' • '+x.reason:''}</span></div></div>):<Empty icon={I.History} title="Belum ada audit" text="Aktivitas penting akan tercatat otomatis."/ >}</div></section>}
   </>
 }
 
 function ActionRouter({action,close,...ctx}){
+  if(action.type==='import-excel')return <ImportExcelModal close={close} action={action} {...ctx}/>;
   if(action.type==='transaction')return <TransactionModal close={close} action={action} {...ctx}/>;
   if(action.type==='tx-detail')return <TransactionDetail close={close} action={action} {...ctx}/>;
   if(action.type==='box')return <BoxModal close={close} {...ctx}/>;
@@ -607,6 +612,141 @@ function EntityModal({action,close,m,d,mosque,reload,notify}){
   </Modal>
 }
 
+
+function Guide({go,open,perms}){
+  const[query,setQuery]=useState('');
+  const guides=[
+    {icon:I.LayoutDashboard,title:'Mulai dari Dashboard',text:'Periksa Total Kas, Dana Bebas, Dana Terikat, surplus/defisit, dan peringatan keuangan.',page:'dashboard'},
+    {icon:I.ArrowLeftRight,title:'Catat transaksi harian',text:'Gunakan Pemasukan untuk uang masuk, Pengeluaran untuk uang keluar, dan Transfer hanya untuk perpindahan antar Kas/Rekening.',page:'transactions'},
+    {icon:I.WalletCards,title:'Pahami Dana vs Kas',text:'Dana menjelaskan peruntukan uang. Kas/Rekening menjelaskan lokasi uang. Keduanya harus tetap seimbang.',page:'funds'},
+    {icon:I.Box,title:'Kotak Amal',text:'Lakukan penghitungan dengan dua saksi, rincikan per titik, pilih Dana dan Kas tujuan, lalu posting.',page:'boxes'},
+    {icon:I.ChartNoAxesColumnIncreasing,title:'Kontrol Anggaran',text:'Buat pagu per bidang lalu pantau realisasi dari transaksi pengeluaran yang sudah POSTED.',page:'budgets'},
+    {icon:I.FileText,title:'Buat laporan',text:'Pilih rentang tanggal, cek preview, lalu ekspor Excel/CSV, Word, atau cetak PDF bersih tanpa tampilan aplikasi.',page:'reports'},
+    {icon:I.UserRoundCog,title:'Atur tim',text:'Owner dapat menambahkan akun yang sudah terdaftar dan menentukan role Bendahara, Sekretaris, Pengurus, atau Viewer.',page:'team'},
+    {icon:I.FileSpreadsheet,title:'Import Excel',text:'Gunakan template Excel pada Donatur, Unit Masjid, Anggaran, Inventaris, atau Kategori untuk memasukkan banyak data sekaligus.',page:'donors'}
+  ];
+  const filtered=guides.filter(x=>(x.title+' '+x.text).toLowerCase().includes(query.toLowerCase()));
+  return <>
+    <PageHead eyebrow="PUSAT BANTUAN" title="Panduan Penggunaan" text="Panduan singkat untuk membantu pengurus memahami alur Amanah Pro tanpa perlu menebak fungsi menu." action={perms.finance?<Button variant="primary" onClick={()=>open({type:'transaction',preset:'income'})}><I.Plus/>Coba Catat Transaksi</Button>:null}/>
+    <section className="guideHero">
+      <div><Badge tone="brand">MULAI 5 MENIT</Badge><h2>Alur kerja yang disarankan</h2><p>1. Siapkan Dana & Kas → 2. Catat transaksi → 3. Periksa Dashboard → 4. Pantau Anggaran → 5. Buat Laporan.</p></div>
+      <div className="guideFlow"><span><I.WalletCards/>Dana & Kas</span><I.ArrowRight/><span><I.ReceiptText/>Transaksi</span><I.ArrowRight/><span><I.BarChart3/>Rekap</span><I.ArrowRight/><span><I.FileCheck2/>Laporan</span></div>
+    </section>
+    <div className="guideSearch"><I.Search/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Cari panduan, misal: kotak amal, laporan, transaksi..."/></div>
+    <div className="guideGrid">{filtered.map((x,i)=><button className="guideCard" key={i} onClick={()=>go(x.page)}><div className="guideIcon"><x.icon/></div><div><b>{x.title}</b><p>{x.text}</p><span>Buka menu <I.ArrowRight/></span></div></button>)}</div>
+    <section className="cardPro guideTips"><SectionHead title="Aturan penting agar laporan benar" text="Empat prinsip ini menjaga data keuangan tetap konsisten."/>
+      <div className="tipGrid"><div><I.CircleCheck/><b>Saldo hanya berubah saat POSTED</b><span>Draft dan pending tidak dihitung sebagai saldo final.</span></div><div><I.Scale/><b>Dana harus sama dengan Kas</b><span>Selisih berarti ada transaksi/alokasi yang perlu diperiksa.</span></div><div><I.History/><b>Jangan hapus transaksi lama</b><span>Gunakan pembatalan/void agar jejak audit tetap ada.</span></div><div><I.ShieldCheck/><b>Gunakan approval untuk nominal besar</b><span>Atur ambang approval di Pengaturan → Kebijakan.</span></div></div>
+    </section>
+  </>
+}
+
+const importSpecs={
+  donor:{
+    title:'Donatur',table:'donors',
+    headers:['Nama','Kode','No HP','Alamat','Komitmen Bulanan','Dana Pilihan','Aktif'],
+    example:[['Ahmad','DON-001','08123456789','Malang',250000,'Infaq Umum','YA']],
+    required:['Nama']
+  },
+  unit:{
+    title:'Unit Masjid',table:'units',
+    headers:['Nama','Kode','Penanggung Jawab','Aktif'],
+    example:[['TPQ Al Amanah','UNIT-001','Ust. Ahmad','YA']],
+    required:['Nama']
+  },
+  budget:{
+    title:'Anggaran',table:'budgets',
+    headers:['Nama','Kode','Bidang','Nilai Pagu'],
+    example:[['Operasional Bulanan','ANG-001','Operasional Masjid',5000000]],
+    required:['Nama','Bidang','Nilai Pagu']
+  },
+  inventory:{
+    title:'Inventaris',table:'inventory',
+    headers:['Nama','Kode','Lokasi','Jumlah','Satuan','Nilai Per Unit','Tanggal Perolehan','Dana Sumber','Kondisi','Catatan'],
+    example:[['Kipas Angin','INV-001','Ruang Utama',4,'unit',450000,today(),'Infaq Umum','good','Kondisi baik']],
+    required:['Nama']
+  },
+  category:{
+    title:'Kategori Transaksi',table:'categories',
+    headers:['Nama','Jenis','Kode','Kelompok Anggaran','Dana Default','Aktif'],
+    example:[['Listrik dan Air','expense','PK-010','Operasional Masjid','','YA']],
+    required:['Nama','Jenis']
+  }
+};
+
+function ImportExcelModal({close,action,mosque,m,d,reload,notify}){
+  const spec=importSpecs[action.entity];
+  const[rows,setRows]=useState([]),[errors,setErrors]=useState([]),[busy,setBusy]=useState(false),[fileName,setFileName]=useState('');
+  const downloadTemplate=()=>{
+    const ws=XLSX.utils.aoa_to_sheet([spec.headers,...spec.example]);
+    ws['!cols']=spec.headers.map(h=>({wch:Math.max(14,h.length+3)}));
+    const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Data');
+    XLSX.writeFile(wb,'template-'+action.entity+'-amanah-pro.xlsx');
+  };
+  const readFile=async file=>{
+    setFileName(file?.name||'');setRows([]);setErrors([]);
+    if(!file)return;
+    try{
+      const buf=await file.arrayBuffer();
+      const wb=XLSX.read(buf,{type:'array',cellDates:false});
+      const ws=wb.Sheets[wb.SheetNames[0]];
+      const parsed=XLSX.utils.sheet_to_json(ws,{defval:''});
+      if(!parsed.length)throw Error('File Excel kosong.');
+      const errs=[];
+      parsed.forEach((r,i)=>spec.required.forEach(h=>{if(String(r[h]??'').trim()==='')errs.push('Baris '+(i+2)+': kolom '+h+' wajib diisi.')}))
+      setRows(parsed);setErrors(errs);
+    }catch(e){setErrors([e.message||'File Excel tidak dapat dibaca.'])}
+  };
+  const findFund=name=>m.funds.find(x=>x.name.trim().toLowerCase()===String(name||'').trim().toLowerCase())?.id||null;
+  const yn=v=>!['TIDAK','NO','FALSE','0','NONAKTIF'].includes(String(v||'YA').trim().toUpperCase());
+  const importNow=async()=>{
+    if(errors.length||!rows.length)return;setBusy(true);
+    try{
+      const openPeriod=d.periods.find(x=>x.status==='open');
+      const base=Date.now().toString().slice(-6);
+      const payload=rows.map((r,i)=>{
+        if(action.entity==='donor')return{mosque_id:mosque.id,name:String(r['Nama']).trim(),code:String(r['Kode']||'').trim()||null,phone:String(r['No HP']||'').trim()||null,address:String(r['Alamat']||'').trim()||null,monthly_commitment:r['Komitmen Bulanan']===''?null:num(r['Komitmen Bulanan']),preferred_fund_id:findFund(r['Dana Pilihan']),active:yn(r['Aktif'])};
+        if(action.entity==='unit')return{mosque_id:mosque.id,name:String(r['Nama']).trim(),code:String(r['Kode']||'').trim()||('UNIT-'+base+'-'+(i+1)),person_in_charge:String(r['Penanggung Jawab']||'').trim()||null,active:yn(r['Aktif'])};
+        if(action.entity==='budget'){if(!openPeriod)throw Error('Tidak ada periode aktif untuk import anggaran.');return{mosque_id:mosque.id,period_id:openPeriod.id,name:String(r['Nama']).trim(),code:String(r['Kode']||'').trim()||('ANG-'+base+'-'+(i+1)),budget_group:String(r['Bidang']).trim(),amount:num(r['Nilai Pagu'])}}
+        if(action.entity==='inventory')return{mosque_id:mosque.id,name:String(r['Nama']).trim(),code:String(r['Kode']||'').trim()||('INV-'+base+'-'+(i+1)),location:String(r['Lokasi']||'').trim()||null,quantity:num(r['Jumlah'])||1,unit:String(r['Satuan']||'unit').trim()||'unit',unit_value:num(r['Nilai Per Unit']),acquired_on:normalizeExcelDate(r['Tanggal Perolehan'])||null,fund_id:findFund(r['Dana Sumber']),condition:['good','service','damaged','inactive'].includes(String(r['Kondisi']).toLowerCase())?String(r['Kondisi']).toLowerCase():'good',notes:String(r['Catatan']||'').trim()||null};
+        if(action.entity==='category'){const kind=String(r['Jenis']).trim().toLowerCase();if(!['income','expense'].includes(kind))throw Error('Jenis kategori harus income atau expense.');return{mosque_id:mosque.id,name:String(r['Nama']).trim(),kind,code:String(r['Kode']||'').trim()||((kind==='income'?'PM-':'PK-')+base+'-'+(i+1)),budget_group:kind==='expense'?(String(r['Kelompok Anggaran']||'').trim()||null):null,default_fund_id:findFund(r['Dana Default']),active:yn(r['Aktif'])}}
+        return null;
+      }).filter(Boolean);
+      await insertRecords(spec.table,payload);
+      notify(payload.length+' data '+spec.title+' berhasil diimport');reload();close();
+    }catch(e){setErrors([e.message])}finally{setBusy(false)}
+  };
+  return <Modal title={'Import Excel — '+spec.title} text="Gunakan template agar kolom terbaca dengan benar. Data ditampilkan dulu sebelum disimpan." close={close} size="lg">
+    <div className="importSteps"><span className="active">1. Unduh template</span><I.ArrowRight/><span className={fileName?'active':''}>2. Isi & unggah</span><I.ArrowRight/><span className={rows.length&&!errors.length?'active':''}>3. Periksa & import</span></div>
+    <div className="importActions"><Button onClick={downloadTemplate}><I.Download/>Unduh Template Excel</Button><label className="fileButton"><I.Upload/>Pilih File Excel<input type="file" accept=".xlsx,.xls" onChange={e=>readFile(e.target.files?.[0])}/></label></div>
+    {fileName&&<div className="fileInfo"><I.FileSpreadsheet/><div><b>{fileName}</b><span>{rows.length} baris terbaca</span></div></div>}
+    {errors.length>0&&<div className="inlineAlert danger"><I.CircleAlert/><div><b>File perlu diperbaiki</b>{errors.slice(0,6).map((x,i)=><div key={i}>{x}</div>)}{errors.length>6&&<div>+ {errors.length-6} kesalahan lainnya</div>}</div></div>}
+    {rows.length>0&&<div className="importPreview"><table><thead><tr>{spec.headers.map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>{rows.slice(0,8).map((r,i)=><tr key={i}>{spec.headers.map(h=><td key={h}>{String(r[h]??'')}</td>)}</tr>)}</tbody></table>{rows.length>8&&<small>Preview 8 dari {rows.length} baris.</small>}</div>}
+    <div className="inlineAlert info"><I.Info/>Import Excel tersedia untuk data master dan perencanaan. Transaksi keuangan tidak diimport massal agar saldo, approval, dan audit tetap tervalidasi.</div>
+    <div className="modalFooter inner"><Button onClick={close}>Batal</Button><Button variant="primary" disabled={!rows.length||!!errors.length||busy} onClick={importNow}>{busy?'Mengimport...':'Import '+rows.length+' Data'}</Button></div>
+  </Modal>
+}
+
+function normalizeExcelDate(v){
+  if(!v)return '';
+  if(typeof v==='number'){const d=XLSX.SSF.parse_date_code(v);if(d)return String(d.y).padStart(4,'0')+'-'+String(d.m).padStart(2,'0')+'-'+String(d.d).padStart(2,'0')}
+  const s=String(v).trim();
+  if(/^\d{4}-\d{2}-\d{2}$/.test(s))return s;
+  const d=new Date(s);return Number.isNaN(d.getTime())?'':d.toISOString().slice(0,10)
+}
+
+function printCleanReport(mosque,start,end,rows,income,expense){
+  const w=window.open('','_blank','noopener,noreferrer,width=1000,height=760');
+  if(!w)return alert('Izinkan pop-up untuk mencetak laporan.');
+  const title='Laporan Keuangan - '+(mosque?.name||'Masjid');
+  w.document.open();
+  w.document.write(reportPrintHtml(mosque,start,end,rows,income,expense,title));
+  w.document.close();
+  w.onload=()=>{setTimeout(()=>{w.focus();w.print()},250)};
+}
+function reportPrintHtml(mosque,start,end,rows,income,expense,title){
+  const safe=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
+  return '<!doctype html><html><head><meta charset="utf-8"><title>'+safe(title)+'</title><style>@page{size:A4;margin:16mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#111;margin:0;font-size:11px}header{display:flex;justify-content:space-between;border-bottom:2px solid #4c2268;padding-bottom:12px;margin-bottom:18px}h1{font-size:20px;margin:0 0 4px}.muted{color:#666}.summary{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:14px 0}.sum{border:1px solid #ddd;border-radius:8px;padding:10px}.sum span{display:block;color:#666;font-size:10px}.sum b{display:block;margin-top:4px;font-size:14px}table{width:100%;border-collapse:collapse}th,td{border-bottom:1px solid #ddd;padding:7px 5px;text-align:left;vertical-align:top}th{background:#f4eef7;font-size:9px;text-transform:uppercase}td.amount{text-align:right;font-weight:bold}footer{margin-top:18px;border-top:1px solid #ddd;padding-top:10px;color:#666;font-size:9px}@media print{button{display:none}}</style></head><body><header><div><h1>'+safe(mosque?.name||'Masjid')+'</h1><div class="muted">Laporan Keuangan • '+safe(fmtDate(start))+' — '+safe(fmtDate(end))+'</div></div><div class="muted">Bantu Beres Amanah Pro<br>'+safe(fmtDate(today()))+'</div></header><section class="summary"><div class="sum"><span>Pemasukan</span><b>'+safe(rp(income))+'</b></div><div class="sum"><span>Pengeluaran</span><b>'+safe(rp(expense))+'</b></div><div class="sum"><span>Surplus / Defisit</span><b>'+safe(rp(income-expense))+'</b></div></section><table><thead><tr><th>Tanggal</th><th>No Bukti</th><th>Jenis</th><th>Uraian</th><th>Dana</th><th>Kas</th><th>Nominal</th></tr></thead><tbody>'+rows.map(t=>'<tr><td>'+safe(fmtDate(t.tx_date))+'</td><td>'+safe(t.document_no)+'</td><td>'+safe(kindLabel[t.kind])+'</td><td>'+safe(t.description)+'</td><td>'+safe(t.funds?.name||'—')+'</td><td>'+safe(t.cash_accounts?.name||'—')+'</td><td class="amount">'+safe(rp(t.amount))+'</td></tr>').join('')+'</tbody></table><footer>Dokumen ini dibuat dari transaksi berstatus POSTED pada Amanah Pro. Transfer antar Kas tidak dihitung sebagai pemasukan atau pengeluaran.</footer></body></html>'
+}
 function monthSeries(rows,count){
   const out=[];const now=new Date();
   for(let i=count-1;i>=0;i--){const d=new Date(now.getFullYear(),now.getMonth()-i,1);const key=d.toISOString().slice(0,7);out.push({key,label:d.toLocaleDateString('id-ID',{month:'short'}),income:0,expense:0})}
