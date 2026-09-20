@@ -11,3 +11,50 @@ html[data-theme=dark] .brandLogo{background:#fff;box-shadow:0 0 0 1px rgba(255,2
 .authCard .brandLogo{width:150px;height:86px}
 .authCard .brandProduct small{font-size:12px}
 @media(max-width:767px){.brandLogo{width:102px;height:58px}.authCard .brandLogo{width:138px;height:80px}}
+
+
+/* Brand palette — mengikuti logo Bantu Beres: purple + blue */
+:root{
+  --primary:#5b1f7f;
+  --primary2:#2f397f;
+  --secondary:#0d5f96;
+  --soft:#f3edf8;
+  --primary-soft:#f3edf8;
+  --bg:#f7f7fb;
+  --surface2:#f8f7fb;
+  --border:#e5e1eb;
+  --text:#1d1a25;
+  --muted:#6f6978;
+}
+html[data-theme=dark]{
+  --bg:#121018;
+  --surface:#191620;
+  --surface2:#211d2a;
+  --text:#f3eff7;
+  --muted:#aaa2b4;
+  --border:#332d3c;
+  --primary:#b38ad2;
+  --primary2:#7898cf;
+  --secondary:#58a1cf;
+  --soft:#2a2036;
+  --primary-soft:#2a2036;
+}
+.primary{background:var(--primary);border-color:var(--primary);color:#fff;box-shadow:0 6px 16px rgba(91,31,127,.12)}
+.primary:hover{background:var(--primary2);border-color:var(--primary2)}
+.link,.brandProduct small{color:var(--secondary)}
+nav button.active{background:linear-gradient(90deg,var(--soft),color-mix(in srgb,var(--secondary) 5%,transparent));color:var(--primary);box-shadow:inset 3px 0 0 var(--secondary)}
+.tabs button.active{color:var(--primary);border-bottom-color:var(--secondary)}
+.quick button svg,.reportGrid .card svg{color:var(--secondary)}
+.typePick button.active{border-color:var(--primary);background:var(--soft);color:var(--primary)}
+.authShell{background:
+  radial-gradient(circle at 8% 12%,rgba(91,31,127,.08),transparent 28%),
+  radial-gradient(circle at 92% 88%,rgba(13,95,150,.07),transparent 26%),
+  var(--bg)}
+.authCard{box-shadow:0 20px 54px rgba(51,28,72,.08)}
+html[data-theme=dark] .authCard{box-shadow:0 22px 60px rgba(0,0,0,.24)}
+.mosqueSwitch:focus,.authCard input:focus,.modal input:focus,.modal select:focus{
+  border-color:var(--secondary);
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--secondary) 14%,transparent);
+  outline:none;
+}
+.bottomNav .fab{background:var(--primary)}

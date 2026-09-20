@@ -2,7 +2,13 @@ import { requireSupabase } from './supabase';
 const db=()=>requireSupabase();
 const ok=({data,error})=>{if(error)throw error;return data};
 export const auth={
- signUp:(email,password,fullName)=>db().auth.signUp({email,password,options:{data:{full_name:fullName}}}),
+ signUp:async(email,password,fullName)=>{
+  const client=db();
+  const {data,error}=await client.functions.invoke('register-user',{body:{email,password,fullName}});
+  if(error)throw error;
+  if(data?.error)throw new Error(data.error);
+  return client.auth.signInWithPassword({email,password});
+ },
  signIn:(email,password)=>db().auth.signInWithPassword({email,password}),
  signOut:()=>db().auth.signOut(),
  session:()=>db().auth.getSession(),
