@@ -44,12 +44,21 @@ export async function postDonationBox(id){return ok(await db().rpc('post_donatio
 export async function uploadEvidence(mosqueId,file,bucket='transaction-evidence'){const safe=file.name.replace(/[^a-zA-Z0-9._-]/g,'-');const path=`${mosqueId}/${crypto.randomUUID()}-${safe}`;ok(await db().storage.from(bucket).upload(path,file));return path;}
 export async function markNotificationRead(id){return ok(await db().from('notifications').update({read_at:new Date().toISOString()}).eq('id',id).select().single());}
 export async function getModuleData(mosqueId){
- const [funds,cash,categories,donors,units,budgets,inventory,boxes,approvals,settings,members]=await Promise.all([
+ const [funds,cash,categories,donors,units,budgets,inventory,boxes,approvals,settings,membersRes]=await Promise.all([
   list('funds',mosqueId),list('cash_accounts',mosqueId),list('categories',mosqueId),list('donors',mosqueId),list('units',mosqueId),list('budgets',mosqueId),list('inventory',mosqueId),
   list('donation_box_sessions',mosqueId,'*','created_at'),list('approvals',mosqueId,'*,transactions(*)'),db().from('settings').select('*').eq('mosque_id',mosqueId).maybeSingle(),
-  db().from('memberships').select('*,profiles:user_id(full_name,avatar_url)').eq('mosque_id',mosqueId).eq('active',true)
+  db().from('memberships').select('*').eq('mosque_id',mosqueId).eq('active',true)
  ]);
- return {funds,cash,categories,donors,units,budgets,inventory,boxes,approvals,settings:ok(settings),members:ok(members)};
+ const members=ok(membersRes)||[];
+ const ids=[...new Set(members.map(x=>x.user_id).filter(Boolean))];
+ let people=[];
+ if(ids.length){
+  const res=await db().from('profiles').select('id,full_name,avatar_url').in('id',ids);
+  if(!res.error)people=res.data||[];
+ }
+ const byId=new Map(people.map(x=>[x.id,x]));
+ const membersWithProfiles=members.map(x=>({...x,profiles:byId.get(x.user_id)||null}));
+ return {funds,cash,categories,donors,units,budgets,inventory,boxes,approvals,settings:ok(settings),members:membersWithProfiles};
 }
 export async function createOpeningSetup(mosqueId,{periodName,startsOn,endsOn,fundName,fundOpening,cashName,cashKind}){
  const period=await createRecord('periods',{mosque_id:mosqueId,name:periodName,starts_on:startsOn,ends_on:endsOn});
