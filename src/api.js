@@ -22,7 +22,7 @@ export async function dashboard(mosqueId){
   db().from('v_fund_balances').select('*').eq('mosque_id',mosqueId),
   db().from('v_cash_balances').select('*').eq('mosque_id',mosqueId),
   db().rpc('reconciliation',{p_mosque_id:mosqueId}),
-  db().from('transactions').select('*,categories(name),funds(name),cash_accounts(name),to_cash:cash_accounts!transactions_to_cash_account_id_fkey(name)').eq('mosque_id',mosqueId).order('tx_date',{ascending:false}).limit(50),
+  db().from('transactions').select('*,categories(name),funds(name),cash_accounts:cash_accounts!transactions_cash_account_id_fkey(name),to_cash:cash_accounts!transactions_to_cash_account_id_fkey(name)').eq('mosque_id',mosqueId).order('tx_date',{ascending:false}).limit(50),
   db().from('periods').select('*').eq('mosque_id',mosqueId).order('starts_on',{ascending:false}),
   db().from('notifications').select('*').eq('mosque_id',mosqueId).order('created_at',{ascending:false}).limit(20)
  ]);
