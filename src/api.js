@@ -33,6 +33,8 @@ export async function createTransaction(payload,allocations=[]){
 }
 export async function postTransaction(id){return ok(await db().rpc('post_transaction',{p_transaction_id:id}));}
 export async function voidTransaction(id,reason){return ok(await db().rpc('void_transaction',{p_transaction_id:id,p_reason:reason}));}
+export async function decideApproval(id,decision,note=''){return ok(await db().rpc('decide_approval',{p_approval_id:id,p_decision:decision,p_note:note||null}));}
+export async function postDonationBox(id){return ok(await db().rpc('post_donation_box',{p_session_id:id}));}
 export async function uploadEvidence(mosqueId,file,bucket='transaction-evidence'){const safe=file.name.replace(/[^a-zA-Z0-9._-]/g,'-');const path=`${mosqueId}/${crypto.randomUUID()}-${safe}`;ok(await db().storage.from(bucket).upload(path,file));return path;}
 export async function markNotificationRead(id){return ok(await db().from('notifications').update({read_at:new Date().toISOString()}).eq('id',id).select().single());}
 export async function getModuleData(mosqueId){
