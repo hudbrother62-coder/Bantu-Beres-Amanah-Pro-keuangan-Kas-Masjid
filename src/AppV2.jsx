@@ -177,14 +177,14 @@ function Workspace({session,globalError}){
         <div className="topTitle"><button className="mobileBrand" onClick={()=>setMobileMore(true)}><I.Menu/></button><button className="desktopCollapse iconBtn" onClick={()=>setCollapsed(!collapsed)} title={collapsed?'Tampilkan navigasi':'Sembunyikan navigasi'}>{collapsed?<I.PanelLeftOpen/>:<I.PanelLeftClose/>}</button><div><span>{mosque?.name}</span><b>{nav.find(x=>x[0]===page)?.[2]||'Amanah Pro'}</b></div></div>
         <div className="topActions"><button className="iconBtn" onClick={()=>setDark(!dark)} title="Ganti tema">{dark?<I.Sun/>:<I.Moon/>}</button><button className="iconBtn" onClick={()=>go('notifications')}><I.Bell/></button>{perms.finance&&<Button variant="primary" onClick={()=>setAction({type:'transaction',preset:'income'})}><I.Plus/>Transaksi</Button>}</div>
       </header>
-      {err&&<div className="topError"><I.CircleAlert/>{err}<button onClick={()=>setErr('')}><I.X/></button></div>}
-      <div className="contentPro"><Page page={page} {...ctx}/></div>
+      {err&&<div className="topError" role="alert"><I.CircleAlert/>{err}<button onClick={()=>setErr('')}><I.X/></button></div>}
+      <div className="contentPro"><div key={page} className="pageEnter"><Page page={page} {...ctx}/></div></div>
     </main>
 
     <BottomNav go={go} open={()=>perms.finance&&setAction({type:'transaction',preset:'income'})} more={()=>setMobileMore(true)} canFinance={perms.finance}/>
     {mobileMore&&<MobileMore page={page} go={go} close={()=>setMobileMore(false)} logout={()=>auth.signOut()}/>}
     {action&&<ActionRouter action={action} close={()=>setAction(null)} {...ctx}/>}
-    {toast&&<div className="toastPro"><I.CircleCheck/>{toast}</div>}
+    {toast&&<div className="toastPro" role="status" aria-live="polite"><I.CircleCheck/>{toast}</div>}
   </div>
 }
 
