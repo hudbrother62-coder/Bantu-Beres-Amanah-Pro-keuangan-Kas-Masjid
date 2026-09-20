@@ -1,0 +1,20 @@
+name: Frontend CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+        env:
+          VITE_SUPABASE_URL: https://fgantnnxzeekjddfgbgf.supabase.co
+          VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_gn8Bitf1xxCxOL49FgrfdA_glg5msRD
