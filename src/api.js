@@ -158,6 +158,25 @@ export async function markNotificationRead(id){
     .single());
 }
 
+export async function markAllNotificationsRead(mosqueId){
+  return ok(await db().from('notifications')
+    .update({read_at:new Date().toISOString()})
+    .eq('mosque_id',mosqueId)
+    .is('read_at',null)
+    .select());
+}
+
+export function subscribeNotifications(mosqueId,onInsert){
+  const client=db();
+  const channel=client.channel('amanah-notifications-'+mosqueId)
+    .on('postgres_changes',{
+      event:'INSERT',schema:'public',table:'notifications',
+      filter:'mosque_id=eq.'+mosqueId
+    },payload=>onInsert?.(payload.new))
+    .subscribe();
+  return ()=>client.removeChannel(channel);
+}
+
 export async function addMember(mosqueId,email,role){
   const {data,error}=await db().functions.invoke('add-member',{body:{mosqueId,email,role}});
   if(error)throw error;
@@ -166,40 +185,44 @@ export async function addMember(mosqueId,email,role){
 }
 
 export async function getModuleData(mosqueId){
+  const safe=async(p,fallback)=>{
+    try{return await p}catch(e){console.warn('Amanah module query failed',e);return fallback}
+  };
+  const safeOk=async(p,fallback)=>{
+    try{const r=await p;if(r.error)throw r.error;return r.data??fallback}catch(e){console.warn('Amanah optional query failed',e);return fallback}
+  };
+
   const [
     funds,cash,categories,donors,units,budgets,inventory,
-    boxes,approvals,settings,membersRes,audits
+    boxes,approvals,settings,members,audits
   ]=await Promise.all([
-    list('funds',mosqueId),
-    list('cash_accounts',mosqueId),
-    list('categories',mosqueId),
-    list('donors',mosqueId,'*','created_at'),
-    list('units',mosqueId),
-    list('budgets',mosqueId),
-    list('inventory',mosqueId),
-    list('donation_box_sessions',mosqueId,'*','created_at'),
-    list('approvals',mosqueId,'*,transactions(*)'),
-    db().from('settings').select('*').eq('mosque_id',mosqueId).maybeSingle(),
-    db().from('memberships').select('*').eq('mosque_id',mosqueId).eq('active',true),
-    db().from('audit_logs').select('*').eq('mosque_id',mosqueId).order('created_at',{ascending:false}).limit(100)
+    safe(list('funds',mosqueId),[]),
+    safe(list('cash_accounts',mosqueId),[]),
+    safe(list('categories',mosqueId),[]),
+    safe(list('donors',mosqueId,'*','created_at'),[]),
+    safe(list('units',mosqueId),[]),
+    safe(list('budgets',mosqueId),[]),
+    safe(list('inventory',mosqueId),[]),
+    safe(list('donation_box_sessions',mosqueId,'*','created_at'),[]),
+    safe(list('approvals',mosqueId,'*,transactions(*)'),[]),
+    safeOk(db().from('settings').select('*').eq('mosque_id',mosqueId).maybeSingle(),null),
+    safeOk(db().from('memberships').select('*').eq('mosque_id',mosqueId).eq('active',true),[]),
+    safeOk(db().from('audit_logs').select('*').eq('mosque_id',mosqueId).order('created_at',{ascending:false}).limit(40),[])
   ]);
 
-  const members=ok(membersRes)||[];
-  const ids=[...new Set(members.map(x=>x.user_id).filter(Boolean))];
+  const ids=[...new Set((members||[]).map(x=>x.user_id).filter(Boolean))];
   let people=[];
   if(ids.length){
-    const res=await db().from('profiles').select('id,full_name,avatar_url').in('id',ids);
-    if(!res.error)people=res.data||[];
+    people=await safeOk(db().from('profiles').select('id,full_name,avatar_url').in('id',ids),[]);
   }
   const byId=new Map(people.map(x=>[x.id,x]));
-  const membersWithProfiles=members.map(x=>({...x,profiles:byId.get(x.user_id)||null}));
+  const membersWithProfiles=(members||[]).map(x=>({...x,profiles:byId.get(x.user_id)||null}));
 
   const boxRows=boxes||[];
   const boxIds=boxRows.map(x=>x.id);
   let counts=[];
   if(boxIds.length){
-    const res=await db().from('donation_box_counts').select('*').in('session_id',boxIds);
-    counts=ok(res)||[];
+    counts=await safeOk(db().from('donation_box_counts').select('*').in('session_id',boxIds),[]);
   }
   const countMap=new Map();
   for(const c of counts){
@@ -210,18 +233,10 @@ export async function getModuleData(mosqueId){
   const boxesWithCounts=boxRows.map(x=>({...x,counts:countMap.get(x.id)||[]}));
 
   return {
-    funds:funds||[],
-    cash:cash||[],
-    categories:categories||[],
-    donors:donors||[],
-    units:units||[],
-    budgets:budgets||[],
-    inventory:inventory||[],
-    boxes:boxesWithCounts,
-    approvals:approvals||[],
-    settings:ok(settings),
-    members:membersWithProfiles,
-    audits:ok(audits)||[]
+    funds:funds||[],cash:cash||[],categories:categories||[],donors:donors||[],
+    units:units||[],budgets:budgets||[],inventory:inventory||[],
+    boxes:boxesWithCounts,approvals:approvals||[],settings,
+    members:membersWithProfiles,audits:audits||[]
   };
 }
 

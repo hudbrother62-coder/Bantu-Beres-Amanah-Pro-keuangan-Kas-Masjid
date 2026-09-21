@@ -1,11 +1,10 @@
 import React,{useEffect,useMemo,useState}from'react';
 import * as I from'lucide-react';
-import * as XLSX from'xlsx';
 import{
   auth,createMosque,memberships,profile,dashboard,getModuleData,createOpeningSetup,
   createRecord,updateRecord,upsertRecord,createTransaction,postTransaction,voidTransaction,
   decideApproval,postDonationBox,createDonationBoxSession,uploadEvidence,markNotificationRead,
-  addMember,signedFileUrl,insertRecords
+  markAllNotificationsRead,subscribeNotifications,addMember,signedFileUrl,insertRecords
 }from'./api';
 import{isSupabaseConfigured}from'./supabase';
 
@@ -17,6 +16,8 @@ const fmtTime=v=>v?new Intl.DateTimeFormat('id-ID',{day:'2-digit',month:'short',
 const roleLabel={owner:'Owner / Ketua',treasurer:'Bendahara',secretary:'Sekretaris',member:'Pengurus',viewer:'Viewer'};
 const statusLabel={draft:'Draft',pending:'Menunggu',posted:'Tercatat',rejected:'Ditolak',voided:'Dibatalkan',approved:'Disetujui'};
 const kindLabel={income:'Pemasukan',expense:'Pengeluaran',transfer:'Transfer'};
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+async function retryAsync(fn,retries=2){let last;for(let i=0;i<=retries;i++){try{return await fn()}catch(e){last=e;if(i<retries)await wait(500*(i+1))}}throw last}
 const nav=[
   ['dashboard',I.LayoutDashboard,'Dashboard'],
   ['transactions',I.ArrowLeftRight,'Transaksi'],
@@ -118,7 +119,7 @@ function Onboarding({done}){
 
 function Workspace({session,globalError}){
   const[ms,setMs]=useState([]),[active,setActive]=useState(localStorage.amanahMosque||''),[me,setMe]=useState(null);
-  const[loading,setLoading]=useState(true),[refresh,setRefresh]=useState(0),[data,setData]=useState(null),[mods,setMods]=useState(null);
+  const[loading,setLoading]=useState(true),[syncing,setSyncing]=useState(false),[accessResolved,setAccessResolved]=useState(false),[refresh,setRefresh]=useState(0),[data,setData]=useState(null),[mods,setMods]=useState(null);
   const[page,setPage]=useState(location.hash.slice(1)||'dashboard'),[dark,setDark]=useState(localStorage.theme==='dark');
   const[action,setAction]=useState(null),[toast,setToast]=useState(''),[err,setErr]=useState(globalError||''),[mobileMore,setMobileMore]=useState(false),[collapsed,setCollapsed]=useState(localStorage.sidebarCollapsed==='1');
   const reload=()=>setRefresh(x=>x+1);
@@ -126,28 +127,59 @@ function Workspace({session,globalError}){
   const go=p=>{location.hash=p;setMobileMore(false)};
 
   useEffect(()=>{
-    setLoading(true);
-    Promise.all([memberships(),profile(session.user.id)]).then(([m,p])=>{
-      const rows=m||[];setMs(rows);setMe(p);
+    let alive=true;
+    setLoading(true);setAccessResolved(false);
+    retryAsync(()=>Promise.all([memberships(),profile(session.user.id)]),2).then(([m,p])=>{
+      if(!alive)return;
+      const rows=m||[];setMs(rows);setMe(p);setAccessResolved(true);setErr('');
       if(!rows.length){setActive('');setData(null);setMods(null);localStorage.removeItem('amanahMosque');return}
       const saved=localStorage.amanahMosque||active;
       const next=rows.some(x=>x.mosque_id===saved)?saved:rows[0].mosque_id;
       setActive(next);localStorage.amanahMosque=next;
-    }).catch(e=>{setErr(e.message);setData(null);setMods(null)}).finally(()=>setLoading(false))
+    }).catch(e=>{
+      if(!alive)return;
+      setErr('Akses akun belum berhasil dimuat. Periksa koneksi lalu coba lagi. '+(e?.message||''));
+      setAccessResolved(false);
+    }).finally(()=>alive&&setLoading(false));
+    return()=>{alive=false}
   },[refresh,session.user.id]);
 
   useEffect(()=>{
     if(!active)return;
-    localStorage.amanahMosque=active;setLoading(true);
-    Promise.all([dashboard(active),getModuleData(active)]).then(([d,m])=>{setData(d);setMods(m);setErr('')}).catch(e=>{setErr(e.message);setData(null);setMods(null)}).finally(()=>setLoading(false))
+    let alive=true;
+    localStorage.amanahMosque=active;
+    const cacheKey='amanahCache:'+active;
+    let cached=null;
+    try{cached=JSON.parse(sessionStorage.getItem(cacheKey)||'null')}catch{}
+    if(cached?.d&&cached?.m){setData(cached.d);setMods(cached.m);setLoading(false)}
+    else setLoading(true);
+    setSyncing(true);
+    retryAsync(()=>Promise.all([dashboard(active),getModuleData(active)]),2).then(([d,m])=>{
+      if(!alive)return;
+      setData(d);setMods(m);setErr('');
+      try{sessionStorage.setItem(cacheKey,JSON.stringify({d,m,at:Date.now()}))}catch{}
+    }).catch(e=>{
+      if(!alive)return;
+      if(cached?.d&&cached?.m)setErr('Koneksi ke server sedang lambat. Menampilkan data terakhir di sesi ini.');
+      else{setErr('Data belum berhasil dimuat setelah beberapa percobaan. '+(e?.message||''));setData(null);setMods(null)}
+    }).finally(()=>{if(alive){setLoading(false);setSyncing(false)}});
+    return()=>{alive=false}
   },[active,refresh]);
 
   useEffect(()=>{document.documentElement.dataset.theme=dark?'dark':'light';localStorage.theme=dark?'dark':'light'},[dark]);
+  useEffect(()=>{
+    if(!active)return;
+    return subscribeNotifications(active,n=>{
+      setData(prev=>prev?{...prev,notifications:[n,...(prev.notifications||[])]}:prev);
+      notify(n.title||'Ada notifikasi baru');
+    });
+  },[active]);
   useEffect(()=>{localStorage.sidebarCollapsed=collapsed?'1':'0'},[collapsed]);
   useEffect(()=>{const h=()=>setPage(location.hash.slice(1)||'dashboard');addEventListener('hashchange',h);return()=>removeEventListener('hashchange',h)},[]);
 
   const finishOnboarding=id=>{if(id){setActive(id);localStorage.amanahMosque=id}setRefresh(x=>x+1)};
-  if(!loading&&!ms.length)return <Onboarding done={finishOnboarding}/>;
+  if(accessResolved&&!loading&&!ms.length)return <Onboarding done={finishOnboarding}/>;
+  if(!accessResolved&&!loading&&!ms.length)return <div className="authShellPro"><div className="authPanel"><Logo/><h1>Akses akun belum berhasil dimuat</h1><p>{err||'Koneksi ke server belum stabil. Aplikasi tidak akan menganggap akun sebagai akun baru.'}</p><Button variant="primary" onClick={reload}><I.RefreshCw/>Coba Lagi</Button><Button variant="ghost" onClick={()=>auth.signOut()}>Keluar akun</Button></div></div>;
   const membership=ms.find(x=>x.mosque_id===active)||ms[0]||null;
   const mosque=membership?.mosques||null;
   if(loading&&(!data||!mods))return <Loading/>;
@@ -173,23 +205,24 @@ function Workspace({session,globalError}){
     </aside>
 
     <main className="mainPro">
+      {syncing&&<div className="syncBar"><i/></div>}
       <header className="topPro">
         <div className="topTitle"><button className="mobileBrand" onClick={()=>setMobileMore(true)}><I.Menu/></button><button className="desktopCollapse iconBtn" onClick={()=>setCollapsed(!collapsed)} title={collapsed?'Tampilkan navigasi':'Sembunyikan navigasi'}>{collapsed?<I.PanelLeftOpen/>:<I.PanelLeftClose/>}</button><div><span>{mosque?.name}</span><b>{nav.find(x=>x[0]===page)?.[2]||'Amanah Pro'}</b></div></div>
-        <div className="topActions"><button className="iconBtn" onClick={()=>setDark(!dark)} title="Ganti tema">{dark?<I.Sun/>:<I.Moon/>}</button><button className="iconBtn" onClick={()=>go('notifications')}><I.Bell/></button>{perms.finance&&<Button variant="primary" onClick={()=>setAction({type:'transaction',preset:'income'})}><I.Plus/>Transaksi</Button>}</div>
+        <div className="topActions"><button className="iconBtn" onClick={()=>setDark(!dark)} title="Ganti tema">{dark?<I.Sun/>:<I.Moon/>}</button><button className="iconBtn notificationButton" onClick={()=>go('notifications')} aria-label="Notifikasi"><I.Bell/>{data.notifications.filter(n=>!n.read_at).length>0&&<span className="notifDot">{Math.min(99,data.notifications.filter(n=>!n.read_at).length)}</span>}</button>{perms.finance&&<Button variant="primary" onClick={()=>setAction({type:'transaction',preset:'income'})}><I.Plus/>Transaksi</Button>}</div>
       </header>
       {err&&<div className="topError" role="alert"><I.CircleAlert/>{err}<button onClick={()=>setErr('')}><I.X/></button></div>}
       <div className="contentPro"><div key={page} className="pageEnter"><Page page={page} {...ctx}/></div></div>
     </main>
 
-    <BottomNav go={go} open={()=>perms.finance&&setAction({type:'transaction',preset:'income'})} more={()=>setMobileMore(true)} canFinance={perms.finance}/>
-    {mobileMore&&<MobileMore page={page} go={go} close={()=>setMobileMore(false)} logout={()=>auth.signOut()}/>}
+    <BottomNav page={page} go={go} open={()=>perms.finance&&setAction({type:'transaction',preset:'income'})} more={()=>setMobileMore(true)} canFinance={perms.finance}/>
+    {mobileMore&&<MobileMore page={page} go={go} close={()=>setMobileMore(false)} logout={()=>auth.signOut()} dark={dark} toggleTheme={()=>setDark(v=>!v)}/>}
     {action&&<ActionRouter action={action} close={()=>setAction(null)} {...ctx}/>}
     {toast&&<div className="toastPro" role="status" aria-live="polite"><I.CircleCheck/>{toast}</div>}
   </div>
 }
 
-function BottomNav({go,open,more,canFinance}){return <div className="bottomPro"><button onClick={()=>go('dashboard')}><I.Home/>Beranda</button><button onClick={()=>go('transactions')}><I.ReceiptText/>Transaksi</button><button className="centerFab" disabled={!canFinance} onClick={open}><I.Plus/></button><button onClick={()=>go('reports')}><I.FileText/>Laporan</button><button onClick={more}><I.Menu/>Lainnya</button></div>}
-function MobileMore({page,go,close,logout}){return <div className="mobileDrawerBack" onMouseDown={e=>e.target===e.currentTarget&&close()}><div className="mobileDrawer"><div className="drawerHandle"/><div className="drawerHead"><Logo compact/><button className="iconBtn" onClick={close}><I.X/></button></div><div className="mobileGrid">{nav.map(([k,Icon,l])=><button key={k} className={page===k?'active':''} onClick={()=>go(k)}><Icon/><span>{l}</span></button>)}</div><Button className="wide" onClick={logout}><I.LogOut/>Keluar akun</Button></div></div>}
+function BottomNav({page,go,open,more,canFinance}){return <div className="bottomPro"><button className={page==='dashboard'?'active':''} onClick={()=>go('dashboard')}><I.Home/>Beranda</button><button className={page==='transactions'?'active':''} onClick={()=>go('transactions')}><I.ReceiptText/>Transaksi</button><button className="centerFab" aria-label="Tambah transaksi" disabled={!canFinance} onClick={open}><I.Plus/></button><button className={page==='reports'?'active':''} onClick={()=>go('reports')}><I.FileText/>Laporan</button><button className={!['dashboard','transactions','reports'].includes(page)?'active':''} onClick={more}><I.Menu/>Lainnya</button></div>}
+function MobileMore({page,go,close,logout,dark,toggleTheme}){return <div className="mobileDrawerBack" onMouseDown={e=>e.target===e.currentTarget&&close()}><div className="mobileDrawer"><div className="drawerHandle"/><div className="drawerHead"><Logo compact/><button className="iconBtn" onClick={close}><I.X/></button></div><button className="mobileThemeSwitch" onClick={toggleTheme}><span>{dark?<I.Sun/>:<I.Moon/>}<b>{dark?'Mode Terang':'Mode Gelap'}</b></span><small>{dark?'Gunakan tampilan terang':'Gunakan tampilan gelap'}</small><I.ChevronRight/></button><div className="mobileGrid">{nav.map(([k,Icon,l])=><button key={k} className={page===k?'active':''} onClick={()=>go(k)}><Icon/><span>{l}</span></button>)}</div><Button className="wide" onClick={logout}><I.LogOut/>Keluar akun</Button></div></div>}
 
 function Page(p){
   switch(p.page){
@@ -396,12 +429,14 @@ function Approvals({m,perms,open}){
   </>
 }
 
-function Notifications({d,reload,go}){
-  const rows=d.notifications||[];
-  const read=async n=>{if(!n.read_at){await markNotificationRead(n.id);reload()}if(n.link&&n.link.startsWith('#'))go(n.link.slice(1))};
+function Notifications({d,mosque,reload,go,notify}){
+  const rows=d.notifications||[],unread=rows.filter(x=>!x.read_at).length;
+  const read=async n=>{try{if(!n.read_at)await markNotificationRead(n.id);if(n.link&&n.link.startsWith('#'))go(n.link.slice(1));reload()}catch(e){notify(e.message)}};
+  const readAll=async()=>{try{await markAllNotificationsRead(mosque.id);notify('Semua notifikasi ditandai sudah dibaca');reload()}catch(e){notify(e.message)}};
   return <>
-    <PageHead eyebrow="PUSAT PEMBERITAHUAN" title="Notifikasi" text="Peringatan keuangan dan tindakan yang perlu diperhatikan."/>
-    <section className="cardPro noPad">{!rows.length?<Empty icon={I.BellOff} title="Belum ada notifikasi" text="Peringatan dan informasi penting akan muncul di sini."/>:<div className="noticeList">{rows.map(n=><button className={'noticePro '+(!n.read_at?'unread':'')} key={n.id} onClick={()=>read(n)}><div className={'noticeIcon '+(n.severity||'info')}>{n.severity==='warning'?<I.TriangleAlert/>:n.severity==='critical'?<I.CircleAlert/>:<I.Bell/>}</div><div><b>{n.title}</b><p>{n.body}</p><span>{fmtTime(n.created_at)}</span></div>{!n.read_at&&<i/>}</button>)}</div>}</section>
+    <PageHead eyebrow="PUSAT PEMBERITAHUAN" title="Notifikasi" text="Peringatan transaksi, approval, pembatalan, dan aktivitas penting muncul otomatis." action={unread?<Button onClick={readAll}><I.CheckCheck/>Tandai semua dibaca</Button>:null}/>
+    <div className="notificationSummary"><div><I.BellRing/><span>Belum dibaca</span><strong>{unread}</strong></div><div><I.Inbox/><span>Total notifikasi</span><strong>{rows.length}</strong></div></div>
+    <section className="cardPro noPad">{!rows.length?<Empty icon={I.BellOff} title="Belum ada notifikasi" text="Notifikasi akan dibuat otomatis saat transaksi menunggu persetujuan, tercatat, ditolak, atau dibatalkan."/>:<div className="noticeList">{rows.map(n=><button className={'noticePro '+(!n.read_at?'unread':'')} key={n.id} onClick={()=>read(n)}><div className={'noticeIcon '+(n.severity||'info')}>{n.severity==='warning'?<I.TriangleAlert/>:n.severity==='critical'?<I.CircleAlert/>:<I.Bell/>}</div><div><b>{n.title}</b><p>{n.body}</p><span>{fmtTime(n.created_at)}</span></div>{!n.read_at&&<i/>}</button>)}</div>}</section>
   </>
 }
 
@@ -676,7 +711,8 @@ const importSpecs={
 function ImportExcelModal({close,action,mosque,m,d,reload,notify}){
   const spec=importSpecs[action.entity];
   const[rows,setRows]=useState([]),[errors,setErrors]=useState([]),[busy,setBusy]=useState(false),[fileName,setFileName]=useState('');
-  const downloadTemplate=()=>{
+  const downloadTemplate=async()=>{
+    const XLSX=await import('xlsx');
     const ws=XLSX.utils.aoa_to_sheet([spec.headers,...spec.example]);
     ws['!cols']=spec.headers.map(h=>({wch:Math.max(14,h.length+3)}));
     const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Data');
@@ -686,6 +722,7 @@ function ImportExcelModal({close,action,mosque,m,d,reload,notify}){
     setFileName(file?.name||'');setRows([]);setErrors([]);
     if(!file)return;
     try{
+      const XLSX=await import('xlsx');
       const buf=await file.arrayBuffer();
       const wb=XLSX.read(buf,{type:'array',cellDates:false});
       const ws=wb.Sheets[wb.SheetNames[0]];
@@ -728,7 +765,7 @@ function ImportExcelModal({close,action,mosque,m,d,reload,notify}){
 
 function normalizeExcelDate(v){
   if(!v)return '';
-  if(typeof v==='number'){const d=XLSX.SSF.parse_date_code(v);if(d)return String(d.y).padStart(4,'0')+'-'+String(d.m).padStart(2,'0')+'-'+String(d.d).padStart(2,'0')}
+  if(typeof v==='number'){const base=new Date(Date.UTC(1899,11,30));base.setUTCDate(base.getUTCDate()+v);return base.toISOString().slice(0,10)}
   const s=String(v).trim();
   if(/^\d{4}-\d{2}-\d{2}$/.test(s))return s;
   const d=new Date(s);return Number.isNaN(d.getTime())?'':d.toISOString().slice(0,10)
