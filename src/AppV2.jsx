@@ -96,6 +96,7 @@ function Auth(){
       <label>Email<input type="email" required autoComplete="email" value={form.email} onChange={e=>setForm({...form,email:e.target.value})} placeholder="nama@email.com"/></label>
       <label>Password<input type="password" minLength="6" required autoComplete={mode==='login'?'current-password':'new-password'} value={form.password} onChange={e=>setForm({...form,password:e.target.value})} placeholder="Minimal 6 karakter"/></label>
       <Button variant="primary" className="wide" disabled={busy}>{busy?<><I.LoaderCircle className="spin"/>Memproses...</>:mode==='login'?'Masuk':'Buat Akun & Masuk'}</Button>
+      {mode==='login'&&<a className="textLink" href="/?bbreset=request">Lupa password?</a>}
       <button type="button" className="textLink" onClick={()=>{setMode(mode==='login'?'register':'login');setErr('')}}>{mode==='login'?'Belum punya akun? Daftar gratis':'Sudah punya akun? Masuk'}</button>
     </form>
   </div>

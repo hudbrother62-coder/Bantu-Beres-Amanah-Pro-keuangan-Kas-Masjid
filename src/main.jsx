@@ -1,8 +1,10 @@
+import PasswordRecovery from './password-recovery'
+import {supabase} from './supabase'
 import React from 'react';
 import{createRoot}from'react-dom/client';
 import App from'./AppV2';
 import'./pro.css';
 
 createRoot(document.getElementById('root')).render(
-  <React.StrictMode><App/></React.StrictMode>
+  <React.StrictMode>{new URLSearchParams(window.location.search).has('bbreset') ? <PasswordRecovery client={supabase}/> : <App/>}</React.StrictMode>
 );
