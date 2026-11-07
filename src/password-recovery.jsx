@@ -19,13 +19,13 @@ export default function PasswordRecovery({client}){
   const to=email.trim().toLowerCase()
   const key='bb-reset:'+to
   const last=Number(localStorage.getItem(key)||0)
-  if(last&&Date.now()-last<60*60*1000){setNotice('Permintaan sebelumnya masih aktif di browser ini. Periksa kotak masuk dan spam. Tidak meminta kode baru.');setError('');return}
+  if(last&&Date.now()-last<60*1000){setNotice('Permintaan baru saja dikirim. Tunggu sebentar dan periksa inbox atau spam sebelum mencoba kembali.');setError('');return}
   setBusy(true);setError('')
   try{
    const {error}=await client.auth.resetPasswordForEmail(to,{redirectTo:location.origin+'/?bbreset=finish'})
    if(error)throw error
    localStorage.setItem(key,String(Date.now()))
-   setNotice('Jika alamat terdaftar dan layanan email aktif, tautan reset dikirim. Periksa email dan spam. Tidak perlu meminta ulang.')
+   setNotice('Jika email terdaftar dan layanan pengiriman aktif, tautan pemulihan akan dikirim. Periksa inbox dan spam. Jika belum diterima, coba kembali setelah beberapa menit.')
   }catch(e){setError(e.message||'Gagal mengirim email.');}finally{setBusy(false)}
  }
  async function save(e){
