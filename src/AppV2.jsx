@@ -17,7 +17,11 @@ const roleLabel={owner:'Owner / Ketua',treasurer:'Bendahara',secretary:'Sekretar
 const statusLabel={draft:'Draft',pending:'Menunggu',posted:'Tercatat',rejected:'Ditolak',voided:'Dibatalkan',approved:'Disetujui'};
 const kindLabel={income:'Pemasukan',expense:'Pengeluaran',transfer:'Transfer'};
 const wait=ms=>new Promise(r=>setTimeout(r,ms));
-async function retryAsync(fn,retries=2){let last;for(let i=0;i<=retries;i++){try{return await fn()}catch(e){last=e;if(i<retries)await wait(500*(i+1))}}throw last}
+const isQuotaError=e=>Number(e?.status)===402||/exceed_egress_quota|exceeded?_.*quota|service for this project is restricted|quota.*(?:exceeded|reached)/i.test(String(e?.message||''));
+const readableError=e=>isQuotaError(e)
+  ? 'Layanan Amanah Pro sementara dibatasi karena kuota transfer data server terlampaui. Akun dan data Anda tidak hilang. Pengelola perlu memulihkan layanan sebelum login atau pemulihan password dapat digunakan.'
+  : e?.message||'Layanan belum dapat diakses.';
+async function retryAsync(fn,retries=2){let last;for(let i=0;i<=retries;i++){try{return await fn()}catch(e){last=e;if(isQuotaError(e))throw e;if(i<retries)await wait(500*(i+1))}}throw last}
 const nav=[
   ['dashboard',I.LayoutDashboard,'Dashboard'],
   ['transactions',I.ArrowLeftRight,'Transaksi'],
@@ -76,9 +80,11 @@ function Auth(){
   const submit=async e=>{
     e.preventDefault();setBusy(true);setErr('');
     try{
-      if(mode==='login')await auth.signIn(form.email,form.password);
-      else await auth.signUp(form.email,form.password,form.name);
-    }catch(x){setErr(x.message||'Tidak dapat memproses akun.')}finally{setBusy(false)}
+      if(mode==='login'){
+        const {error}=await auth.signIn(form.email,form.password);
+        if(error)throw error;
+      }else await auth.signUp(form.email,form.password,form.name);
+    }catch(x){setErr(readableError(x))}finally{setBusy(false)}
   };
   return <div className="authShellPro">
     <div className="authShowcase">
@@ -139,7 +145,7 @@ function Workspace({session,globalError}){
       setActive(next);localStorage.amanahMosque=next;
     }).catch(e=>{
       if(!alive)return;
-      setErr('Akses akun belum berhasil dimuat. Periksa koneksi lalu coba lagi. '+(e?.message||''));
+      setErr('Akses akun belum berhasil dimuat. '+readableError(e));
       setAccessResolved(false);
     }).finally(()=>alive&&setLoading(false));
     return()=>{alive=false}
@@ -162,7 +168,7 @@ function Workspace({session,globalError}){
     }).catch(e=>{
       if(!alive)return;
       if(cached?.d&&cached?.m)setErr('Koneksi ke server sedang lambat. Menampilkan data terakhir di sesi ini.');
-      else{setErr('Data belum berhasil dimuat setelah beberapa percobaan. '+(e?.message||''));setData(null);setMods(null)}
+      else{setErr('Data belum berhasil dimuat. '+readableError(e));setData(null);setMods(null)}
     }).finally(()=>{if(alive){setLoading(false);setSyncing(false)}});
     return()=>{alive=false}
   },[active,refresh]);
