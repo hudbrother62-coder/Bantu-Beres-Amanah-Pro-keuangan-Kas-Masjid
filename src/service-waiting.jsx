@@ -27,6 +27,10 @@ export default function ServiceWaiting() {
     const changed=()=>setWait(getServiceWait())
     window.addEventListener(WAIT_EVENT,changed)
     window.addEventListener('storage',changed)
+    // A provider-confirmed billing-cycle date can be displayed immediately when configured.
+    fetch('/api/service-status').then(r=>r.ok?r.json():null).then(data=>{
+      if(data?.quotaRenewAt&&Number.isFinite(Date.parse(data.quotaRenewAt)))setRestorationAt(Date.parse(data.quotaRenewAt))
+    }).catch(()=>{})
     return()=>{clearInterval(timer);window.removeEventListener(WAIT_EVENT,changed);window.removeEventListener('storage',changed)}
   },[])
 
