@@ -2,6 +2,9 @@ import {useEffect,useState} from 'react'
 const shell={minHeight:'100vh',display:'grid',placeItems:'center',padding:24,background:'#f4f7fb',color:'#17243b',fontFamily:'system-ui,sans-serif'}
 const card={width:'100%',maxWidth:440,padding:28,borderRadius:18,background:'#fff',border:'1px solid #e2e8f0',boxShadow:'0 12px 35px #11182712'}
 const input={width:'100%',boxSizing:'border-box',border:'1px solid #94a3b8',borderRadius:9,padding:12,fontSize:16,marginTop:6}
+const readableError=e=>Number(e?.status)===402||/exceed_egress_quota|exceeded?_.*quota|service for this project is restricted|quota.*(?:exceeded|reached)/i.test(String(e?.message||''))
+ ? 'Layanan Amanah Pro sementara dibatasi karena kuota transfer data server terlampaui. Email pemulihan belum dapat dikirim. Akun Anda tetap tersimpan. Silakan hubungi pengelola aplikasi.'
+ : e?.message||'Gagal memproses pemulihan password.'
 export default function PasswordRecovery({client}){
  const [mode]=useState(()=>new URLSearchParams(location.search).get('bbreset')==='finish'?'finish':'request')
  const [email,setEmail]=useState(''),[password,setPassword]=useState(''),[confirmation,setConfirmation]=useState('')
@@ -26,14 +29,14 @@ export default function PasswordRecovery({client}){
    if(error)throw error
    localStorage.setItem(key,String(Date.now()))
    setNotice('Jika email terdaftar dan layanan pengiriman aktif, tautan pemulihan akan dikirim. Periksa inbox dan spam. Jika belum diterima, coba kembali setelah beberapa menit.')
-  }catch(e){setError(e.message||'Gagal mengirim email.');}finally{setBusy(false)}
+  }catch(e){setError(readableError(e));}finally{setBusy(false)}
  }
  async function save(e){
   e.preventDefault();if(!client||!authorized){setError('Sesi pemulihan tidak valid.');return}
   if(password.length<8||password!==confirmation){setError('Password minimal 8 karakter dan kedua isian harus sama.');return}
   setBusy(true);setError('')
   try{const {error}=await client.auth.updateUser({password});if(error)throw error;await client.auth.signOut();setAuthorized(false);setNotice('Password berhasil diganti. Silakan login dengan password baru.')}
-  catch(e){setError(e.message||'Password gagal diperbarui.')}finally{setBusy(false)}
+  catch(e){setError(readableError(e))}finally{setBusy(false)}
  }
  return <main style={shell}><section style={card}>
   <strong style={{fontSize:13,color:'#63738b'}}>BANTU BERES · AMANAH PRO</strong>
