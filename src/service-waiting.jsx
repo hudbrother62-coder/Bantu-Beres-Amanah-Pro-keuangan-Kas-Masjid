@@ -5,7 +5,7 @@ import {
   QUOTA_CHECK_INTERVAL, WAIT_EVENT, EMAIL_RETRY_INTERVAL,
   getServiceWait,getPendingRecovery,isQuotaError,isEmailRateError,
   markQuotaWait,markEmailWait,postponeQuotaCheck,deferRecovery,
-  clearServiceWait,clearPendingRecovery,markRecoverySent
+  clearServiceWait,clearPendingRecovery,markRecoverySent,queueRecovery
 } from './quota-service'
 const fmtDuration = ms => {
   const total = Math.max(0,Math.ceil(ms/1000))
@@ -20,6 +20,7 @@ export default function ServiceWaiting() {
   const [restorationAt,setRestorationAt]=useState(null)
   const [checking,setChecking]=useState(false)
   const [notice,setNotice]=useState('')
+  const [recoveryEmail,setRecoveryEmail]=useState('')
   const inFlight=useRef(false)
   useEffect(()=>{
     const timer=setInterval(()=>setNow(Date.now()),1000)
@@ -95,6 +96,11 @@ export default function ServiceWaiting() {
       <b>Perkiraan pembaruan kuota</b>
       {restorationAt?<><span>{fmtDate(restorationAt)}</span><small>{resetCountdown?'Hitung mundur ke jadwal: '+resetCountdown:'Jadwal telah tercapai; menunggu server membuka akses kembali'}</small></>:<span>Belum tersedia dari penyedia layanan</span>}
     </div>}
+    {!pending&&!isEmail&&<form className="waitQueueForm" onSubmit={e=>{e.preventDefault();queueRecovery(recoveryEmail);setRecoveryEmail('');setNotice('Alamat email ditambahkan ke antrean pada browser ini. Sistem akan mencoba pemulihan setelah server kembali tersedia.')}}>
+      <label htmlFor="wait-recovery-email">Ingin mengantre untuk pemulihan password?</label>
+      <input id="wait-recovery-email" type="email" required maxLength={200} autoComplete="email" placeholder="Email akun terdaftar" value={recoveryEmail} onChange={e=>setRecoveryEmail(e.target.value)}/>
+      <button type="submit">Masukkan ke antrean pemulihan</button>
+    </form>}
     {pending&&<div className="waitQueue"><Mail size={17}/><div><b>Pemulihan password menunggu</b><span>{maskEmail(pending.email)} — akan dicoba kembali otomatis selama halaman ini terbuka, atau saat dibuka kembali di browser yang sama.</span></div></div>}
     {notice&&<div className="waitNotice"><AlertCircle size={16}/><span>{notice}</span></div>}
     <div className="waitFoot"><ShieldCheck size={16}/><span>Password dan kode OTP tidak disimpan di antrean.</span></div>
